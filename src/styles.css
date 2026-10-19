@@ -1,0 +1,785 @@
+import { Canvas, useFrame } from '@react-three/fiber';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import * as THREE from 'three';
+
+type AppId =
+  | 'browser'
+  | 'notes'
+  | 'calculator'
+  | 'gallery'
+  | 'music'
+  | 'files'
+  | 'settings'
+  | 'terminal';
+
+type Note = {
+  id: string;
+  title: string;
+  content: string;
+  updatedAt: number;
+};
+
+type WindowState = {
+  id: AppId;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  minimized: boolean;
+  maximized: boolean;
+  z: number;
+};
+
+type Settings = {
+  accent: string;
+  glass: number;
+  reducedMotion: boolean;
+  theme: 'dark' | 'midnight';
+  wallpaper: string;
+};
+
+type Wallpaper = {
+  id: string;
+  name: string;
+  gradient: string;
+};
+
+type FileEntry = {
+  id: string;
+  name: string;
+  kind: 'folder' | 'file';
+  content?: string;
+};
+
+type AppDefinition = {
+  id: AppId;
+  label: string;
+  emoji: string;
+  accent: string;
+  short: string;
+};
+
+const appDefinitions: AppDefinition[] = [
+  { id: 'browser', label: 'Browser', emoji: '🌐', accent: '#7cc7ff', short: 'Web' },
+  { id: 'notes', label: 'Notes', emoji: '📝', accent: '#8ef0d0', short: 'Ideas' },
+  { id: 'calculator', label: 'Calculator', emoji: '🧮', accent: '#8fa8ff', short: 'Math' },
+  { id: 'gallery', label: 'Gallery', emoji: '🖼️', accent: '#f7c4ff', short: 'Wall' },
+  { id: 'music', label: 'Music', emoji: '🎵', accent: '#ffb88b', short: 'Audio' },
+  { id: 'files', label: 'Files', emoji: '📁', accent: '#a1f0ff', short: 'Data' },
+  { id: 'settings', label: 'Settings', emoji: '⚙️', accent: '#a4d4ff', short: 'Prefs' },
+  { id: 'terminal', label: 'Terminal', emoji: '⌨️', accent: '#c4f0a8', short: 'CLI' },
+];
+
+const wallpapers: Wallpaper[] = [
+  { id: 'lunar', name: 'Lunar Drift', gradient: 'linear-gradient(135deg, #060915 0%, #101b2d 30%, #1a274d 65%, #0d1726 100%)' },
+  { id: 'aurora', name: 'Aurora Basin', gradient: 'linear-gradient(135deg, #04070d 0%, #0a1a23 40%, #173d4b 100%)' },
+  { id: 'ember', name: 'Ember Glass', gradient: 'linear-gradient(135deg, #090b12 0%, #211822 35%, #4b2e3d 100%)' },
+  { id: 'ice', name: 'Ice Bloom', gradient: 'linear-gradient(135deg, #050b10 0%, #0d1723 32%, #1d3555 100%)' },
+];
+
+const defaultSettings: Settings = {
+  accent: '#71d4ff',
+  glass: 72,
+  reducedMotion: false,
+  theme: 'dark',
+  wallpaper: 'aurora',
+};
+
+const starterNotes: Note[] = [
+  { id: 'n1', title: 'Design brief', content: 'Create a calm, premium OS feel with ambient depth and tactile controls.', updatedAt: Date.now() },
+  { id: 'n2', title: 'Launch tasks', content: 'Browser, files, gallery, and settings need to feel cohesive and polished.', updatedAt: Date.now() + 10000 },
+];
+
+const sampleFiles: FileEntry[] = [
+  { id: 'f1', name: 'Overview.txt', kind: 'file', content: 'WonderOS is built to feel like a premium hybrid of a desktop and a futuristic mobile experience.' },
+  { id: 'f2', name: 'Wallpapers', kind: 'folder' },
+  { id: 'f3', name: 'Notes.md', kind: 'file', content: '# To Do\n- Tune the dock\n- Improve window focus\n- Add wallpaper presets' },
+  { id: 'f4', name: 'System.log', kind: 'file', content: 'Kernel boot complete. Ambient rendering initialized.' },
+];
+
+const loadStored = <T,>(key: string, fallback: T): T => {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value ? (JSON.parse(value) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const saveStored = <T,>(key: string, value: T): void => {
+  window.localStorage.setItem(key, JSON.stringify(value));
+};
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatTime(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+}
+
+function WonderScene() {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame((state) => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y = state.clock.elapsedTime * 0.28;
+      groupRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.7) * 0.3;
+      groupRef.current.position.y = Math.sin(state.clock.elapsedTime * 0.8) * 0.3;
+    }
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh position={[0, 0.2, 0]}>
+        <icosahedronGeometry args={[1.5, 1]} />
+        <meshPhysicalMaterial
+          color="#7ec9ff"
+          emissive="#6fcaff"
+          roughness={0.15}
+          metalness={0.3}
+          transmission={0.8}
+          opacity={0.58}
+          transparent
+        />
+      </mesh>
+      <mesh position={[-1.8, -0.8, -1]} rotation={[0.7, 0.6, 0.1]}>
+        <torusGeometry args={[1.2, 0.2, 24, 128]} />
+        <meshStandardMaterial color="#94d6ff" emissive="#5dc7ff" transparent opacity={0.7} />
+      </mesh>
+      <mesh position={[1.7, 0.8, -1.6]}>
+        <sphereGeometry args={[0.7, 32, 32]} />
+        <meshBasicMaterial color="#a9d8ff" transparent opacity={0.34} />
+      </mesh>
+      <mesh position={[0, -1.8, -1.7]} rotation={[1.1, 0.2, 0.3]}>
+        <octahedronGeometry args={[1.1, 0]} />
+        <meshStandardMaterial color="#b8d7ff" emissive="#83b6ff" transparent opacity={0.4} />
+      </mesh>
+    </group>
+  );
+}
+
+function App() {
+  const [now, setNow] = useState<Date>(new Date());
+  const [settings, setSettings] = useState<Settings>(() => loadStored('wonderos-settings', defaultSettings));
+  const [notes, setNotes] = useState<Note[]>(() => loadStored('wonderos-notes', starterNotes));
+  const [windows, setWindows] = useState<WindowState[]>([
+    { id: 'browser', title: 'Browser', x: 16, y: 14, width: 460, height: 360, minimized: false, maximized: false, z: 2 },
+  ]);
+  const [activeWindow, setActiveWindow] = useState<AppId>('browser');
+  const [browserQuery, setBrowserQuery] = useState('wonderos design interface');
+  const [browserUrl, setBrowserUrl] = useState('https://wonderos.example');
+  const [controlCenterOpen, setControlCenterOpen] = useState(false);
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [notifications, setNotifications] = useState<string[]>([
+    'Desktop sync completed',
+    'Aurora wallpaper applied',
+    'Motion settings saved',
+  ]);
+  const [selectedFile, setSelectedFile] = useState<string>('Overview.txt');
+  const [currentNoteId, setCurrentNoteId] = useState<string>('n1');
+  const [terminalHistory, setTerminalHistory] = useState<string[]>([
+    'WonderOS shell ready',
+    'Type help to list demo commands.',
+  ]);
+  const [calculatorValue, setCalculatorValue] = useState('0');
+  const [calculatorDisplay, setCalculatorDisplay] = useState('0');
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [musicProgress, setMusicProgress] = useState(32);
+  const [searchValue, setSearchValue] = useState('');
+
+  useEffect(() => {
+    saveStored('wonderos-settings', settings);
+  }, [settings]);
+
+  useEffect(() => {
+    saveStored('wonderos-notes', notes);
+  }, [notes]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const selectedWallpaper = useMemo(
+    () => wallpapers.find((entry) => entry.id === settings.wallpaper) ?? wallpapers[1],
+    [settings.wallpaper],
+  );
+
+  const currentNote = notes.find((note) => note.id === currentNoteId) ?? notes[0];
+
+  const appLookup = useMemo(() => {
+    const map = new Map<AppId, AppDefinition>();
+    appDefinitions.forEach((app) => map.set(app.id, app));
+    return map;
+  }, []);
+
+  const updateNotes = (next: Note[]) => setNotes(next);
+
+  const openApp = (appId: AppId): void => {
+    setActiveWindow(appId);
+    setLauncherOpen(false);
+
+    setWindows((previous) => {
+      const existing = previous.find((window) => window.id === appId);
+      if (existing) {
+        return previous.map((window) =>
+          window.id === appId
+            ? { ...window, minimized: false, z: Date.now() % 10000 }
+            : window,
+        );
+      }
+
+      const index = previous.length;
+      const nextWindow: WindowState = {
+        id: appId,
+        title: appLookup.get(appId)?.label ?? 'App',
+        x: 120 + (index % 3) * 70,
+        y: 90 + (index % 3) * 40,
+        width: appId === 'browser' ? 520 : 430,
+        height: 360,
+        minimized: false,
+        maximized: false,
+        z: Date.now() % 10000,
+      };
+      return [...previous, nextWindow];
+    });
+  };
+
+  const closeWindow = (appId: AppId): void => {
+    setWindows((previous) => previous.filter((window) => window.id !== appId));
+    if (activeWindow === appId) {
+      const next = windows.find((window) => window.id !== appId);
+      if (next) setActiveWindow(next.id);
+    }
+  };
+
+  const maximizeWindow = (appId: AppId): void => {
+    setWindows((previous) =>
+      previous.map((window) =>
+        window.id === appId
+          ? { ...window, maximized: !window.maximized, minimized: false }
+          : window,
+      ),
+    );
+  };
+
+  const minimizeWindow = (appId: AppId): void => {
+    setWindows((previous) =>
+      previous.map((window) =>
+        window.id === appId ? { ...window, minimized: !window.minimized } : window,
+      ),
+    );
+  };
+
+  const dismissNotification = (index: number): void => {
+    setNotifications((previous) => previous.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const addNotification = (message: string): void => {
+    setNotifications((previous) => [message, ...previous].slice(0, 5));
+  };
+
+  const runDemoCommand = (command: string): void => {
+    const trimmed = command.trim();
+    const output = [
+      `> ${trimmed}`,
+      ...(() => {
+        switch (trimmed) {
+          case 'help':
+            return ['help', 'date', 'ls', 'theme', 'open notes', 'clear'];
+          case 'date':
+            return [new Date().toString()];
+          case 'ls':
+            return ['browser', 'notes', 'gallery', 'files', 'music'];
+          case 'theme':
+            return ['Accent synced with the system palette.'];
+          case 'open notes':
+            openApp('notes');
+            return ['Opening Notes app.'];
+          case 'clear':
+            setTerminalHistory([]);
+            return [];
+          default:
+            return ['Command not recognized. Use help to view demo commands.'];
+        }
+      })(),
+    ];
+    setTerminalHistory((previous) => [...previous, ...output]);
+  };
+
+  const calculatorPress = (value: string): void => {
+    const current = calculatorDisplay === '0' && value !== '.' ? value : calculatorDisplay + value;
+    if (value === 'C') {
+      setCalculatorDisplay('0');
+      setCalculatorValue('0');
+      return;
+    }
+    if (value === '=') {
+      try {
+        const sanitized = calculatorValue.replace(/×/g, '*').replace(/÷/g, '/');
+        const evaluated = Function(`"use strict"; return (${sanitized})`)();
+        setCalculatorDisplay(String(evaluated));
+        setCalculatorValue(String(evaluated));
+      } catch {
+        setCalculatorDisplay('Error');
+        setCalculatorValue('0');
+      }
+      return;
+    }
+
+    if (/^[0-9+\-*/.]+$/.test(value) || value === '×' || value === '÷') {
+      setCalculatorValue((previous) => {
+        const nextValue = previous === '0' ? value : previous + value;
+        setCalculatorDisplay(nextValue);
+        return nextValue;
+      });
+    }
+  };
+
+  const handleDrag = (appId: AppId, dx: number, dy: number): void => {
+    setWindows((previous) =>
+      previous.map((window) =>
+        window.id === appId
+          ? {
+              ...window,
+              x: clamp(window.x + dx, 12, window.maximized ? 18 : 1200),
+              y: clamp(window.y + dy, 12, 900),
+            }
+          : window,
+      ),
+    );
+  };
+
+  const accentStyles = {
+    '--accent': settings.accent,
+    '--glass-amount': `${settings.glass}%`,
+  } as React.CSSProperties;
+
+  const renderWindowBody = (appId: AppId): JSX.Element => {
+    switch (appId) {
+      case 'browser':
+        return (
+          <div className="browser-view">
+            <div className="browser-toolbar glass-panel">
+              <button className="circle-button">←</button>
+              <button className="circle-button">→</button>
+              <div className="browser-address">{browserUrl}</div>
+              <button className="browser-go" onClick={() => addNotification('Search refreshed')}>Go</button>
+            </div>
+            <div className="browser-body">
+              <div className="browser-sidebar glass-panel">
+                <div className="chip active">Planetary</div>
+                <div className="chip">Design</div>
+                <div className="chip">Media</div>
+                <div className="chip">Mail</div>
+              </div>
+              <div className="browser-main glass-panel">
+                <div className="browser-search-row">
+                  <input
+                    value={browserQuery}
+                    onChange={(event) => setBrowserQuery(event.target.value)}
+                    placeholder="Search the web"
+                  />
+                  <button onClick={() => setBrowserUrl('https://wonderos.example/search/' + browserQuery.toLowerCase().replace(/\s+/g, '-'))}>
+                    Search
+                  </button>
+                </div>
+                <div className="browser-result">
+                  <div className="browser-badge">WONDEROS</div>
+                  <h3>Spatial browsing experience</h3>
+                  <p>
+                    Designed for a calm, premium operating system environment with layered insight,
+                    environmental depth, and responsive interactions.
+                  </p>
+                </div>
+                <div className="browser-grid">
+                  <div className="mini-card">
+                    <span>News</span>
+                    <strong>Glass surfaces</strong>
+                  </div>
+                  <div className="mini-card">
+                    <span>Insights</span>
+                    <strong>Ambient UX</strong>
+                  </div>
+                  <div className="mini-card">
+                    <span>Workspace</span>
+                    <strong>Operational sync</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case 'notes':
+        return (
+          <div className="notes-app">
+            <aside className="note-list glass-panel">
+              {notes.map((note) => (
+                <button
+                  key={note.id}
+                  className={`note-row ${currentNoteId === note.id ? 'selected' : ''}`}
+                  onClick={() => setCurrentNoteId(note.id)}
+                >
+                  <span>{note.title}</span>
+                  <small>{new Date(note.updatedAt).toLocaleDateString()}</small>
+                </button>
+              ))}
+              <button
+                className="primary-button"
+                onClick={() => {
+                  const id = `n${Date.now()}`;
+                  const nextNote: Note = {
+                    id,
+                    title: 'New note',
+                    content: 'Start writing...',
+                    updatedAt: Date.now(),
+                  };
+                  setNotes((previous) => [nextNote, ...previous]);
+                  setCurrentNoteId(id);
+                }}
+              >
+                + New note
+              </button>
+            </aside>
+            <main className="note-editor glass-panel">
+              {currentNote && (
+                <>
+                  <input
+                    value={currentNote.title}
+                    onChange={(event) =>
+                      updateNotes(
+                        notes.map((note) =>
+                          note.id === currentNote.id ? { ...note, title: event.target.value, updatedAt: Date.now() } : note,
+                        ),
+                      )
+                    }
+                  />
+                  <textarea
+                    value={currentNote.content}
+                    onChange={(event) =>
+                      updateNotes(
+                        notes.map((note) =>
+                          note.id === currentNote.id ? { ...note, content: event.target.value, updatedAt: Date.now() } : note,
+                        ),
+                      )
+                    }
+                  />
+                  <div className="notes-actions">
+                    <button className="danger-button" onClick={() => setNotes((previous) => previous.filter((note) => note.id !== currentNote.id))}>
+                      Delete
+                    </button>
+                  </div>
+                </>
+              )}
+            </main>
+          </div>
+        );
+      case 'calculator':
+        return (
+          <div className="calculator-view">
+            <div className="calc-display">{calculatorDisplay}</div>
+            <div className="calc-grid">
+              {['C', '÷', '×', '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '=', '0', '.'].map((key) => (
+                <button key={key} className="calc-button" onClick={() => calculatorPress(key)}>
+                  {key}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      case 'gallery':
+        return (
+          <div className="gallery-grid">
+            {wallpapers.map((wallpaper) => (
+              <button
+                key={wallpaper.id}
+                className={`wallpaper-card ${settings.wallpaper === wallpaper.id ? 'selected' : ''}`}
+                style={{ background: wallpaper.gradient }}
+                onClick={() => {
+                  setSettings((previous) => ({ ...previous, wallpaper: wallpaper.id }));
+                  addNotification(`${wallpaper.name} wallpaper active`);
+                }}
+              >
+                <span>{wallpaper.name}</span>
+              </button>
+            ))}
+          </div>
+        );
+      case 'music':
+        return (
+          <div className="music-player">
+            <div className="album-art" />
+            <div className="track-meta">
+              <span>Now playing</span>
+              <strong>Drift Through Glass</strong>
+              <small>WonderOS Ambient</small>
+            </div>
+            <div className="player-controls">
+              <button onClick={() => setMusicPlaying((previous) => !previous)}>{musicPlaying ? 'Pause' : 'Play'}</button>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={musicProgress}
+                onChange={(event) => setMusicProgress(Number(event.target.value))}
+              />
+            </div>
+          </div>
+        );
+      case 'files':
+        return (
+          <div className="files-view">
+            <div className="file-panel glass-panel">
+              {sampleFiles.map((file) => (
+                <button
+                  key={file.id}
+                  className={`file-row ${selectedFile === file.name ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedFile(file.name);
+                    if (file.kind === 'file') {
+                      addNotification(`${file.name} opened`);
+                    }
+                  }}
+                >
+                  <span>{file.kind === 'folder' ? '📁' : '📄'}</span>
+                  {file.name}
+                </button>
+              ))}
+            </div>
+            <div className="file-preview glass-panel">
+              {sampleFiles.find((file) => file.name === selectedFile)?.content ?? 'No file selected'}
+            </div>
+          </div>
+        );
+      case 'settings':
+        return (
+          <div className="settings-grid">
+            <label>
+              Accent
+              <input type="color" value={settings.accent} onChange={(event) => setSettings({ ...settings, accent: event.target.value })} />
+            </label>
+            <label>
+              Glass intensity
+              <input type="range" min={20} max={100} value={settings.glass} onChange={(event) => setSettings({ ...settings, glass: Number(event.target.value) })} />
+            </label>
+            <label>
+              Reduced motion
+              <input type="checkbox" checked={settings.reducedMotion} onChange={(event) => setSettings({ ...settings, reducedMotion: event.target.checked })} />
+            </label>
+            <label>
+              Theme
+              <select value={settings.theme} onChange={(event) => setSettings({ ...settings, theme: event.target.value as 'dark' | 'midnight' })}>
+                <option value="dark">Dark</option>
+                <option value="midnight">Midnight</option>
+              </select>
+            </label>
+          </div>
+        );
+      case 'terminal':
+        return (
+          <div className="terminal-view glass-panel">
+            <div className="terminal-output">
+              {terminalHistory.map((line, index) => (
+                <div key={`${line}-${index}`}>{line}</div>
+              ))}
+            </div>
+            <div className="terminal-input-row">
+              <span>$</span>
+              <input
+                placeholder="Try: help, ls, open notes"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    const value = (event.target as HTMLInputElement).value;
+                    runDemoCommand(value);
+                    (event.target as HTMLInputElement).value = '';
+                  }
+                }}
+              />
+            </div>
+          </div>
+        );
+      default:
+        return <div className="empty-state">No app content.</div>;
+    }
+  };
+
+  const activeApp = appLookup.get(activeWindow) ?? appDefinitions[0];
+
+  return (
+    <div className={`wonder-shell ${settings.theme}`} style={accentStyles}>
+      <div className="wallpaper-layer" style={{ background: selectedWallpaper.gradient }} />
+      <div className="ambient-grid" />
+      <header className="status-bar glass-panel">
+        <div className="status-left">WonderOS</div>
+        <div className="status-center">{formatDate(now)}</div>
+        <div className="status-right">
+          <span>Wi‑Fi</span>
+          <span>Bluetooth</span>
+          <span>{formatTime(now)}</span>
+        </div>
+      </header>
+
+      <main className="desktop-shell">
+        <section className="home-screen">
+          <div className="home-scene">
+            <Canvas camera={{ position: [0, 0, 5], fov: 40 }}>
+              <ambientLight intensity={0.9} />
+              <pointLight position={[3, 3, 3]} intensity={1.2} color="#7ac9ff" />
+              <WonderScene />
+            </Canvas>
+          </div>
+
+          <div className="hero-panel glass-panel">
+            <div className="hero-copy">
+              <span className="eyebrow">AUTONOMOUS OPERATING SYSTEM</span>
+              <h1>WonderOS</h1>
+              <p>Futuristic glass interfaces meeting intuitive controls, responsive apps, and ambient depth.</p>
+            </div>
+            <div className="hero-actions">
+              <button className="primary-button" onClick={() => openApp('browser')}>Open Browser</button>
+              <button className="secondary-button" onClick={() => setLauncherOpen(true)}>App Launcher</button>
+            </div>
+          </div>
+
+          <div className="quick-panel glass-panel">
+            <div className="quick-header">
+              <span>Quick access</span>
+              <button onClick={() => openApp('settings')}>Manage</button>
+            </div>
+            <div className="quick-grid">
+              {appDefinitions.slice(0, 5).map((app) => (
+                <button key={app.id} className="quick-cell" onClick={() => openApp(app.id)}>
+                  <span>{app.emoji}</span>
+                  <small>{app.short}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <nav className="dock glass-panel">
+        {appDefinitions.map((app) => (
+          <button key={app.id} className={`dock-button ${activeApp.id === app.id ? 'active' : ''}`} onClick={() => openApp(app.id)}>
+            <span>{app.emoji}</span>
+          </button>
+        ))}
+      </nav>
+
+      {launcherOpen && (
+        <div className="launcher-overlay" onClick={() => setLauncherOpen(false)}>
+          <div className="launcher-panel glass-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="launcher-header">
+              <h2>Applications</h2>
+              <button className="close-button" onClick={() => setLauncherOpen(false)}>×</button>
+            </div>
+            <div className="launcher-grid">
+              {appDefinitions.map((app) => (
+                <button key={app.id} className="app-tile" onClick={() => openApp(app.id)}>
+                  <span>{app.emoji}</span>
+                  <strong>{app.label}</strong>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {controlCenterOpen && (
+        <aside className="control-center glass-panel">
+          <div className="center-header">
+            <h3>Control Center</h3>
+            <button className="close-button" onClick={() => setControlCenterOpen(false)}>×</button>
+          </div>
+          <div className="center-grid">
+            <div className="center-card">
+              <span>Brightness</span>
+              <input type="range" min={0} max={100} defaultValue={80} />
+            </div>
+            <div className="center-card">
+              <span>Volume</span>
+              <input type="range" min={0} max={100} defaultValue={65} />
+            </div>
+            <div className="center-card toggle">
+              <span>Do Not Disturb</span>
+              <input type="checkbox" />
+            </div>
+            <div className="center-card toggle">
+              <span>Wi‑Fi</span>
+              <input type="checkbox" defaultChecked />
+            </div>
+            <div className="center-card toggle">
+              <span>Bluetooth</span>
+              <input type="checkbox" defaultChecked />
+            </div>
+          </div>
+        </aside>
+      )}
+
+      <div className="notification-tray">
+        {notifications.map((notification, index) => (
+          <div key={`${notification}-${index}`} className="toast glass-panel">
+            <span>{notification}</span>
+            <button onClick={() => dismissNotification(index)}>×</button>
+          </div>
+        ))}
+      </div>
+
+      <button className="control-button glass-panel" onClick={() => setControlCenterOpen((previous) => !previous)}>
+        Control
+      </button>
+
+      {windows
+        .filter((window) => !window.minimized)
+        .map((window) => (
+          <div
+            key={window.id}
+            className={`system-window ${activeWindow === window.id ? 'active' : ''}`}
+            style={{
+              left: window.x,
+              top: window.y,
+              width: window.maximized ? 'calc(100vw - 80px)' : `${window.width}px`,
+              height: window.maximized ? 'calc(100vh - 180px)' : `${window.height}px`,
+              zIndex: window.z,
+            }}
+            onPointerDown={() => setActiveWindow(window.id)}
+          >
+            <div className="window-header glass-panel" onPointerDown={(event) => {
+              const startX = event.clientX;
+              const startY = event.clientY;
+              const onMove = (moveEvent: PointerEvent) => handleDrag(window.id, moveEvent.clientX - startX, moveEvent.clientY - startY);
+              const onUp = () => {
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+              };
+              window.addEventListener('pointermove', onMove);
+              window.addEventListener('pointerup', onUp);
+            }}>
+              <div className="window-title">{window.title}</div>
+              <div className="window-actions">
+                <button className="window-button" onClick={() => minimizeWindow(window.id)}>—</button>
+                <button className="window-button" onClick={() => maximizeWindow(window.id)}>□</button>
+                <button className="window-button danger" onClick={() => closeWindow(window.id)}>×</button>
+              </div>
+            </div>
+            <div className="window-body">{renderWindowBody(window.id)}</div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+export default App;
